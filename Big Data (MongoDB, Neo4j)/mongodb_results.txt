@@ -1,0 +1,163 @@
+1.  查询 user 集合从第二条记录开始的三条记录。
+db.user.find().limit(3).skip(1).pretty()
+
+2.查询 user_id 是 q-0Um-wv45DcHdNIyhTUOw 的 user。
+db.user.find({user_id:"q-0Um-wv45DcHdNIyhTUOw"}).pretty()
+
+3.查询fans不小于50且review_count>10的user限制10条
+db.user.find({'fans':{$gte:50},$and:[{'review_count':{$gt:10}}]}).limit(10).pretty()
+
+4. 查询所有名字为 rashmi 的用户名，不区分大小写。
+db.user.find({'name':{$regex:'rashmi',$options:'$i'}}).pretty()
+
+5.查询同时是user_id为xjrUcid6Ymq0DoTJELkYyw和6yCWjFPtp_AD4x93WAwmnw的朋友的用户，限制20条。
+
+find common friends in two arrays and then remove duplicates, limit by 20
+ db.user.find({friends:{$all:["xjrUcid6Ymq0DoTJELkYyw","6yCWjFPtp_AD4x93WAwmnw"]}},{user_id:1});
+
+
+
+6. 统计user一共有多少条数据。
+
+db.user.count()
+
+1637141
+
+7.	计用户名重名的次数，返回姓名重复的次数和对应的姓名，按照次数降序排列。
+name and user_id
+
+db.user.aggregate({"$project":{"name":1, "user_id":1}},
+{"$group":{"_id":"$name","counts":{"$sum":1}}},
+{"$sort":{"counts":-1}})
+
+file is huge, limit to 5
+
+{ _id: 'John', counts: 14430 }
+{ _id: 'David', counts: 13616 }
+{ _id: 'Michael', counts: 13559 }
+{ _id: 'Chris', counts: 12178 }
+{ _id: 'Mike', counts: 11358 }
+
+
+
+8.	查询评价对应的user的信息【提示2个表关联查询$lookup】
+db.user.aggregate([
+{$lookup:{
+from:"review",
+localField:"user_id",//from user
+foreignField:"user_id",//review
+as:"review"}},
+{$unwind:"$review"}
+])
+
+file is huge , limit to 1
+
+9.	使用explain看db.user.find({user_id: "z4xZolh3zzBmPEW6RuGuJQ"});执行计划，进行查询优化
+db.user.explain().find({user_id:"z4xZolh3zzBmPEW6RuGuJQ"})
+
+
+The db.collection.explain().find() construct allows for the additional chaining of query modifiers. For list of query modifiers, see db.collection.explain().find().help().
+The db.collection.explain().find() returns a cursor, which requires a call to .next(), or its alias .finish(), to return the explain() results. If run interactively in the mongo shell, the mongo shell automatically calls .finish() to return the results. For scripts, however, you must explicitly call .next(), or .finish(), to return the results. For list of cursor-related methods, see db.collection.explain().find().help().
+
+
+
+
+10.	创建一个review的子集合reviewSub(取review的前一百万条数据)，对评论的内容建立全文索引，进行查询评价的内容中包含关键词ambience good lively的评价
+
+general search operation:  db.reviewSub.find( { 'text':/ambience good lively/i})
+i for case insensitive
+
+
+1)use the text index to the reviewSub
+
+db.reviewSub.createIndex( { comments: "text" } )
+
+
+2)search for the results
+
+
+db.reviewSub.find({$text: { $search: "\"ambience good lively\"" } })
+
+
+ 
+
+11.体验文档的结构是自由的【同一个集合中可以存在异构的文档】
+
+
+12.	查询距离店铺6016c6b4af81085b0f2183d5(object id) 10 米以内的商家
+
+we want to find the business location of 6016c6b4af81085b0f2183d5,
+since the object id is unique, we can easily find the id
+-----------------------------------------------------------------------
+
+
+db.business.find({"_id":ObjectId('6016c6b4af81085b0f2183d5')})
+{ _id: ObjectId("6016c6b4af81085b0f2183d5"),
+  business_id: 'dFMxzHygTy6F873843dHAA',
+  name: 'Fremont Arcade',
+  address: '450 Fremont St, Ste 179',
+  city: 'Las Vegas',
+  state: 'NV',
+  postal_code: '89101',
+  latitude: 36.169993,
+  longitude: -115.140685,
+  stars: 4.5,
+  review_count: 38,
+  is_open: 1,
+  attributes: { GoodForKids: 'True' },
+  categories: [ 'Arcades', 'Arts & Entertainment' ],
+  hours: 
+   { Monday: '11:0-0:0',
+     Tuesday: '11:0-0:0',
+     Wednesday: '11:0-0:0',
+     Thursday: '11:0-0:0',
+     Friday: '11:0-1:0',
+     Saturday: '11:0-1:0',
+     Sunday: '11:0-0:0' },
+  loc: { type: 'Point', coordinates: [ -115.140685, 36.169993 ] } }
+
+-----------------------------------------------------------------------
+
+find other business in this area with radius of 10
+
+db.business.find(
+   { loc: { $geoWithin: { $center: [ [ -115.140685, 36.169993 ], 10 ] } } }
+)
+
+
+13.实时统计一个网站的访问次数，可以这样设计db.page_counter.insertOne({cnt: 0})，如何更新这个字段，如果使用MySQL怎么实现，性能怎么样，如何优化，和mongoDB对比的情况如何
+No schema insertion 增加字段不用改表结构
+insert query MongoDB is faster than MYSQL,
+There can be several reasons, and some of them can be adjusted if you need better performance out of MySQL itself.
+
+If you have AUTOCOMMIT on, every MySQL INSERT will do an implied COMMIT. This is expensive and can be fixed for bulk-load INSERTS by doing single multi-record INSERTs as well as a START TRANSACTION-COMMIT with a huge bunch of INSERTs in the middle. If you’re inserting thousands or tens of thousands of records at once, this change will make your INSERT load go dozens or hundreds of times faster. MongoDB doesn’t have transactions, so its loads will be faster. (An aside: bulk single-rec UPDATEs on many records can also be done this way using INSERT … ON DUPLICATE KEY UPDATE.)
+If you have secondary indexes, MySQL bulk INSERTs will have to update them.
+If you have a lot of FOREIGN KEYs, INSERTs will have to check them as well.
+If you have a very large (ie, > 100M recs) InnoDB table, bulk loading may benefit from Partitioning the table.
+Also, MongoDB is tuned for bulk load operations, and as it doesn’t have transactions, it’s much faster for loads and updates. This is the trade-off for supporting ACID transactions versus not, although as I mentioned, you can get around much of the problem for bulk operations by a combination of db and app tuning.
+
+
+
+
+14.使用map reduce计算每位用户做出评价的平均分（建议在reviewSub集合上做，review过于大）。
+for each user, find the avg score.
+
+user_id  stars
+
+
+
+> var map=function(){emit(this.user_id,this.stars)};
+> var reduce=function(user_id,stars){return Array.avg(stars);};
+> db.reviewSub.mapReduce(map,reduce,{out:"avgstars"});
+
+
+
+
+
+
+
+
+
+
+ 
+
