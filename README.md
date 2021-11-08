@@ -1,5 +1,4 @@
-# course projects
- course projects
+
 <h1 align="center">Hi 👋, I'm Chang Tu</h1>
 <h3 align="center">Final year student | University of Canterbury | Christchurch</h3>
 
