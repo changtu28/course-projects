@@ -1,0 +1,12 @@
+N
+S
+W
+E
+S
+W
+E
+N
+Silly comments and blank
+lines should be ignored
+
+Q
