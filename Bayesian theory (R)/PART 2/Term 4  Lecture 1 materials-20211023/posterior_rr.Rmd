@@ -1,0 +1,59 @@
+---
+title: "relative risk simulation"
+author: "Patrick Graham"
+date: "10 September 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+Illustration of simulation to  evaluate the posterior for the relative risk, given data from two Binomial experiments.
+$$
+\begin{aligned}
+   Y_{A} |N_{A}, \theta_{A}  & \sim \mathrm{Binomial}(\theta_{A},10) \\
+ Y_{B} |N_{B}, \theta_{B} & \sim \mathrm{Binomial}(\theta_{B},10)
+\end{aligned}
+$$
+$$
+\begin{aligned}
+p(\theta_{A},\theta_{B}) & = p(\theta_{A})p(\theta_{B}) \\
+\theta_{A} & \sim ~ \mathrm{Beta}(1,1) \\
+\theta_{B} & \sim  \mathrm{Beta}(1,1)
+\end{aligned}
+$$
+We are interested in the relative risk, $\mathrm{rr}= \theta_{A}/\theta_{B}$
+
+```{r, echo=TRUE}
+###set-up the data
+YA <- 7   #successes
+Na <- 10
+
+YB <- 3
+Nb <- 10
+````
+
+Under our model assumptions
+$$
+\begin{aligned}
+p(\theta_{A},\theta_{B}|\mathrm{data}) & = p(\theta_{A}|Y_{A},N_{A})p(\theta_{B}|Y_{B},N_{B}) \\&                      = \mathrm{Beta}(1+Y_{A},N_{A}-Y_{A}+1)\mathrm{Beta}(1+Y_{B},N_{B}-Y_{B}+1)
+\end{aligned}
+$$
+Monte Carlo evaluation for relative risk is therefore
+```{r,echo=TRUE}
+nsim <- 10000 ## fix  simulation sample size
+
+postA <- rbeta(n=nsim,shape1=1+YA,shape2=Na-YA+1)
+postB <- rbeta(n=nsim,shape1=1+YB,shape2=Nb-YB+1)
+
+str(postA)
+str(postB)
+
+RR <- postA / postB
+plot(density(RR), main="posterior density for RR")
+
+summary(RR)
+##Get useful summary quantiles
+qRR <- quantile(RR,probs=c(0.025,0.5,0.975))
+qRR
+```

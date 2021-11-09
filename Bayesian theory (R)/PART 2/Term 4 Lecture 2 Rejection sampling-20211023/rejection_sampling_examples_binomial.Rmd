@@ -1,0 +1,457 @@
+---
+title: 'Rejection sampling: Non-conjugate Binomial example'
+author: "Patrick Graham"
+date: "7 September 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r, echo=FALSE}
+library(MASS)          
+library(MCMCpack)
+library(arm)   #gives access to logit and inverse logit functions
+library(logitnorm)  
+library(LearnBayes) ##access to laplace approximation etc
+library(logitnorm)
+#gives access to logit - normal density function
+
+#wd <- "~/Patrick/Stat314-2018/code" ##change to own folder or better
+                                    ##still set this up as project in 
+                                    ##Rsstudio
+
+#setwd(wd)
+```
+## Illustration of the likelihood as a function of the model parameter.
+Before looking at  rejection sampling we illustrate the idea of the 
+likelihood as function of the model parameter.
+Consider a study comprising 6 Binomial experiments each with N=10 trial
+The data is:
+
+```{r,echo=TRUE}
+Y <- c(6,7,5,5,4,8)
+N <- rep(10,length(Y) )
+```
+We compute some summaries typically involved in Bayesian calculations.
+```{r,echo=TRUE}
+NmY <- N-Y
+
+sumY <- sum(Y)
+sumNmY <- sum(N-Y)
+sumY
+sumNmY
+```
+Now we set-up a function to compute the log-likelihood. When doing numerical work with likelihoods it usually best to work on the (natural)
+log scale.
+```{r, echo=TRUE}
+
+loglike_binom <- function(theta,Y,N)  {
+  logl <- dbinom(Y,N,prob=theta,log=TRUE)
+  return(sum(logl))
+}
+
+##Evaluate at a few points
+loglike_binom(theta=0.4,Y=Y,N=N)
+loglike_binom(theta=0.1,Y=Y,N=N)
+loglike_binom(theta=0.8,Y=Y,N=N)
+###Plot the log-likelihood for a range of sucesss probabilities
+
+testtheta <- seq(from=0.01,to=0.99,by=0.01) #range of theta's to test
+
+##set up structure to store log-likelihoods for plotting
+loglstore <- vector(mode="numeric",length=length(testtheta))
+
+##Loop over theta values and compute the corresponding log-likelihood
+
+for (i in 1:length(testtheta)) {
+  loglstore[i] <- loglike_binom(theta=testtheta[i],Y=Y,N=N)
+}
+loglstore
+
+###Plot the log-likelihood
+
+plot(testtheta,loglstore,main="log-likelihood for Binomial example")
+
+##clearer if we plot a line? A continuous function after all
+
+plot(testtheta,loglstore,type="l",lwd=2.0,main="log-likelihood for Binomial example")
+```
+
+##Rejection sampler for a non-conjugte Binomial problem
+
+$$
+\begin{aligned}
+Y_{i} &  \stackrel{\mathrm{indep}}{\sim} \mathrm{Binomial}(10,\theta) \nonumber \\
+\mathrm{logit}(\theta) & \sim \mathrm{Normal}(\mu,\sigma^{2}) \\
+p(\theta|\mathbf{Y},N) & \propto \prod_{i}\mathrm{Binomial}(Y_{i}|10,\theta) \times \mathrm{logitN}(\theta|\mu,\sigma^{2})
+\end{aligned}
+$$
+To get familiar with the logit-normal prior we plot this density for a few different parameter combinations.
+```{r, echo=TRUE}
+
+##first define a function to simulate from the logit-normal
+rlogitnormal <- function(n,mu,sigma) {
+  require(arm)
+  l <- rnorm(n=n,mean=mu,sd=sigma)
+  theta <- invlogit(l)
+  return(theta)
+}
+
+##specify parameters of the prior
+mu_prior <- logit(0.5)
+sigma_prior <- 5
+
+###Plot the prior
+testtheta <- rlogitnormal(n=10000,mu=mu_prior,sigma=sigma_prior)
+density_prior <- density(testtheta,from=0,to=1)
+plot(density_prior,main=paste("logitN(",round(mu_prior,2),",",sigma_prior,")",sep=""))
+summary(testtheta)
+
+###Try another set of parameters
+mu_prior <- logit(0.5)
+sigma_prior <- 1
+
+###Plot the prior
+testtheta <- rlogitnormal(n=10000,mu=mu_prior,sigma=sigma_prior)
+density_prior <- density(testtheta,from=0,to=1)
+plot(density_prior,main=paste("logitN(",round(mu_prior,2),",",sigma_prior,")",sep=""))
+summary(testtheta)
+```
+
+###Rejection sampling.
+
+If our approximation is the prior, $r(\theta)$ is the likelihood. 
+Hence we accept draws with probability Likelihood/M
+where M is the value of the likelihood evaluated at the MLE. It is easier to work on the log-scale and so find $\log(M)$ by computing the log-likelihood with $\theta$ set to the MLE, which is $\hat{\theta}=\sum_{i}Y_{i} /\sum_{i}N_{i}.$
+```{r,echo=TRUE}
+logM <- loglike_binom(theta=(sum(Y)/sum(N)),Y=Y,N=N) 
+
+##specify the prior
+mu_prior <- logit(0.5)
+sigma_prior <- 5
+
+##set-up the rejection sampling loop
+simnum <- 2000 #desired simulation sample size
+storetheta <- vector(mode="numeric",length=simnum)
+accepted <- 0
+rejected <- 0
+
+while(accepted < simnum) {
+  theta_prop <- rlogitnormal(n=1,mu=mu_prior,sigma=sigma_prior)
+  ###Evaluate the likelihood at this proposal
+  llike_prop <- loglike_binom(Y=Y,N=N,theta=theta_prop)
+  
+  
+  U <- runif(1)
+  if (log(U) < llike_prop - logM) {
+    accepted <- accepted + 1
+    storetheta[accepted] <- theta_prop
+  } else {
+    rejected <- rejected + 1
+  }
+}
+summary(storetheta)
+plot(density(storetheta))
+accepted
+rejected
+
+acceptance_rate <- accepted/(accepted+rejected)
+acceptance_rate
+
+###plot posterior density plot with prior superimposed 
+#- to illustrate ideas around quality of 
+##approximatin density
+testtheta <- rlogitnormal(n=10000,mu=mu_prior,sigma=sigma_prior)
+density_prior <- density(testtheta,from=0,to=1)
+plot(density(storetheta),
+     main="rejection sampler logit-normal(0,5) prior",lwd=2,xlim=c(0,1)) 
+lines(density_prior,lwd=2,col="red")
+```
+
+Now we repeat  all this with an alternative alternative prior, which is less diffuse  and again use the prior as the approximating density.
+
+```{r, echo=TRUE}
+##specify parameters of the prior
+mu_prior <- logit(0.5)  #logit(0.5) =0
+sigma_prior <- 1
+
+###Plot the prior
+testtheta <- rlogitnormal(n=10000,mu=mu_prior,sigma=sigma_prior)
+density_prior <- density(testtheta,from=0,to=1)
+plot(density_prior,main=paste("logitN(",round(mu_prior,2),",",sigma_prior,")",sep=""))
+summary(testtheta)
+##Find log(M) - log of maximum value of the ratio of the unnormalized posterior density (q) to the approximating density
+logM <- loglike_binom(theta=(sum(Y)/sum(N)),Y=Y,N=N) ##working with the
+#unnormalized density
+simnum <- 2000 #desired simulation sample size
+storetheta <- vector(mode="numeric",length=simnum)
+accepted <- 0
+rejected <- 0
+
+while(accepted < simnum) {
+  theta_prop <- rlogitnormal(n=1,mu=mu_prior,sigma=sigma_prior)
+  ###Evaluate the likelihood at this proposal
+  llike_prop <- loglike_binom(Y=Y,N=N,theta=theta_prop)
+  
+  
+  U <- runif(1)
+  if (log(U) < llike_prop - logM) {
+    accepted <- accepted + 1
+    storetheta[accepted] <- theta_prop
+  } else {
+    rejected <- rejected + 1
+  }
+}
+summary(storetheta)
+plot(density(storetheta))
+accepted
+rejected
+
+acceptance_rate <- accepted/(accepted+rejected)
+acceptance_rate
+
+###plot posterior density plot with prior superimposed 
+#- to illustrate ideas around quality of 
+##approximatin density
+plot(density(storetheta),
+     main="rejection sampler logit-normal(0,1) prior",lwd=2,xlim=c(0,1)) 
+lines(density_prior,lwd=2,col="red")
+```
+
+###Using a Beta approximation to the posterior as the approximating density.
+
+We consider again the diffuse logit-normal prior.
+
+```{r,echo=TRUE}
+##Go back to the original prior
+mu_prior <- logit(0.5)
+sigma_prior <- 5
+##Re-draw the logit-normal  sample from the prior
+testtheta <- rlogitnormal(n=10000,mu=mu_prior,sigma=sigma_prior)
+density_prior <- density(testtheta)
+plot(density(testtheta,from=0,to=1),main=paste("logitN(",round(mu_prior,2),",",sigma_prior,")",sep=""))
+summary(testtheta)
+```
+
+We can approximate the logit-normal prior with a Beta distribution with the same mean and variance.
+
+```{r, echo=TRUE}
+mean_theta <- mean(testtheta)
+var_theta <- (sd(testtheta))^2
+mean_theta
+var_theta
+
+a <- (mean_theta^2*(1-mean_theta) - var_theta*mean_theta)/var_theta 
+b <- a*(1-mean_theta)/mean_theta
+a
+b
+
+###plot the beta density with these values 
+##could  do  exactly using dbeta but will simulate
+
+apprxtheta <- rbeta(10000,a,b)
+summary(apprxtheta)
+mean(apprxtheta)
+(sd(apprxtheta))^2
+density_prior_beta <- density(apprxtheta,from=0,to=1)
+
+plot(density_prior_beta,main=paste("beta(",round(a,2),",",round(b,2),")",sep=""))
+```
+
+We can construct a beta approximation to the posterior  using standard the standard conjugate udating formulae for the binomial-beta model.
+
+```{r,echo=TRUE}
+
+apos <- a + sumY #sum_i Y_i
+bpos <- b + sumNmY  #sum_i (N_i-Y_i)
+
+#check approximate posterior mean
+apos/(apos+bpos)
+
+pos_approx <- rbeta(10000,apos,bpos)
+density_pos_betaapprx <- density(pos_approx)
+plot(density(pos_approx))
+```
+
+We Need to find the maximum  of 
+$\mathrm{Binomial}(Y|N,\theta)\mathrm{logit}(\theta|mu,\sigma) / \mathrm{beta}(\theta|\mathrm{apos},\mathrm{bpos})$
+on a log scale.  We take a simple brute force approach by evaluating $\log r(\theta)$ over the parameter space which is just $(0,1).$
+
+```{r,echo=TRUE}
+###set up a function for logr()
+
+logr <- function(phi) {
+  rtheta <- (sum(Y)*log(phi) + sum(N-Y)*log(1-phi) + 
+               dlogitnorm(q=phi,mu=mu_prior,s=sigma_prior,log=TRUE))
+              - dbeta(phi,shape1=apos,shape2=bpos,log=TRUE)
+  return(rtheta)}
+
+#evaluate logr over the (0,1) interval
+
+theta_test <- seq(from=0.001,to=0.999,by=0.0001)
+logrtheta<- logr(phi=theta_test)
+summary(logrtheta)
+
+plot(theta_test,logrtheta)
+
+which.max(logrtheta)  ###This identifies the position in the logrtheta vector
+                      ###at which the maximum value of logrtheta is                           ##### found
+
+theta_maxr <- theta_test[which.max(logrtheta)]     #Value of theta which maximises logrtheta
+logM2 <- logrtheta[which.max(logrtheta)]
+theta_maxr
+logM2
+##check logM2 should equal the value of logr evaluated at theta_maxr
+logr(theta_maxr)
+```
+ Now we know $\log M$ we can set up the rejection sampler.
+```{r, echo=TRUE}
+ ###Set up the rejection sampler
+simnum <- 2000 #desired simulation sample size
+storetheta2 <- vector(mode="numeric",length=simnum)
+accepted2 <- 0
+rejected2 <- 0
+
+while(accepted2 < simnum) {
+  theta_prop <- rbeta(n=1,shape=apos,shape2=bpos)
+  ###Evaluate the log - importance ratio at this proposal
+  logr_prop <- logr(phi=theta_prop)
+  
+  U <- runif(1)
+  if (log(U) < logr_prop - logM2) {
+    accepted2 <- accepted2 + 1
+    storetheta2[accepted2] <- theta_prop
+  } else {
+    rejected2 <- rejected2 + 1
+  }
+}
+summary(storetheta2)
+plot(density(storetheta2))
+accepted2
+rejected2
+
+acceptance_rate2 <- accepted2/(accepted2 + rejected2)
+acceptance_rate2
+##Superimpose density plot for beta approximation  densisty to 
+#illustrate good approximator
+plot(density(storetheta2),main="rejection sampler using beta density as the
+       approximator",
+     xlim=c(0,1),lwd=2)
+lines(density_pos_betaapprx,lwd=2,col="red")
+```
+
+Next we repeat the beta-approximation approach for the model with 
+$ \mathrm{logit-normal}(0,1)$ 
+```{r,echo=TRUE}
+mu_prior <- logit(0.5)
+sigma_prior <- 1
+
+##Re-draw the logit-normal  sample from the prior
+testtheta <- rlogitnormal(n=10000,mu=mu_prior,sigma=sigma_prior)
+density_prior <- density(testtheta)
+plot(density(testtheta,from=0,to=1),main=paste("logitN(",round(mu_prior,2),",",sigma_prior,")",sep=""))
+summary(testtheta)
+
+###obtain a beta distribution with the same mean and variance as logit-normal sample
+mean_theta <- mean(testtheta)
+var_theta <- (sd(testtheta))^2
+mean_theta
+var_theta
+
+a <- (mean_theta^2*(1-mean_theta) - var_theta*mean_theta)/var_theta 
+b <- a*(1-mean_theta)/mean_theta
+a
+b
+
+###plot the beta density with these values 
+##could  do  exactly using dbeta but will simulate
+
+apprxtheta <- rbeta(10000,a,b)
+summary(apprxtheta)
+mean(apprxtheta)
+(sd(apprxtheta))^2
+density_prior_beta <- density(apprxtheta,from=0,to=1)
+plot(density_prior_beta,main=paste("beta(",round(a,2),",",round(b,2),")",sep=""))
+
+
+###beta approximation to the posterior  -- 
+#this will be the approximating density for the rejection sampler
+## That is we are approximating the posterior with a distribution 
+## that could plausibly  have been the posterior had a conjugate prior
+##prior been adopted.
+
+apos <- a + sumY #sum_i Y_i
+bpos <- b + sumNmY  #sum_i (N_i-Y_i)
+
+#check approximate posterior mean
+apos/(apos+bpos)
+
+pos_approx <- rbeta(10000,apos,bpos)
+density_pos_betaapprx <- density(pos_approx)
+plot(density(pos_approx))
+
+####Need to find max of 
+#Binomial(Y|N,\theta)logit(theta|mu,\sigma) / beta(\theta|apos,bpos);
+# (on log scale)
+##Function to compute logr
+logr <- function(phi) {
+  rtheta <- (sum(Y)*log(phi) + sum(N-Y)*log(1-phi) + 
+               dlogitnorm(q=phi,mu=mu_prior,s=sigma_prior,log=TRUE))
+  - dbeta(phi,shape1=apos,shape2=bpos,log=TRUE)
+  return(rtheta)}
+
+#evaluate logr over the (0,1) interval
+
+theta_test <- seq(from=0.001,to=0.999,by=0.0001)
+logrtheta<- logr(phi=theta_test)
+summary(logrtheta)
+
+plot(theta_test,logrtheta)
+
+which.max(logrtheta)  ###This identifies the position in the logrtheta vector
+###at which the maximum value of logrtheta is found
+
+theta_maxr <- theta_test[which.max(logrtheta)]     #Value of theta which maximises logrtheta
+logM2 <- logrtheta[which.max(logrtheta)]
+theta_maxr
+logM2
+##check logM2 should equal the value of logr evaluated at theta_maxr
+logr(theta_maxr)
+```
+Now, we know $\log M$ we can set up the rejection sampler.
+
+```{r,echo=TRUE}
+
+simnum <- 2000 #desired simulation sample size
+storetheta3 <- vector(mode="numeric",length=simnum)
+accepted3 <- 0
+rejected3 <- 0
+
+while(accepted3 < simnum) {
+  theta_prop <- rbeta(n=1,shape=apos,shape2=bpos)
+  ###Evaluate the log - importance ratio at this proposal
+  logr_prop <- logr(phi=theta_prop)
+  
+  U <- runif(1)
+  if (log(U) < logr_prop - logM2) {
+    accepted3<- accepted3 + 1
+    storetheta3[accepted3] <- theta_prop
+  } else {
+    rejected3 <- rejected3 + 1
+  }
+}
+summary(storetheta3)
+plot(density(storetheta3))
+accepted3
+rejected3
+
+acceptance_rate3 <- accepted3/(accepted3 + rejected3)
+acceptance_rate3
+##Superimpose density plot for beta approximation  densisty to 
+#illustrate good approximator
+plot(density(storetheta3),main="rejection sampler using beta density as the
+     approximator",
+     xlim=c(0,1),lwd=2)
+lines(density_pos_betaapprx,lwd=2,col="red")
+```

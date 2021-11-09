@@ -1,0 +1,288 @@
+---
+title: "Tongue cancer rates by DHB"
+author: "Patrick Graham"
+date: "09/09/2021"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Tongue cancer rates by DHB
+
+We consider  rates of tongue cancer by DHB, based on cancers registered in 2018.
+
+## Setup the data
+
+```{r, echo=TRUE}
+cancerdata <- read.csv("data/tongue_cancer.csv",header=TRUE)
+str(cancerdata)
+#only a small dataset so why not just print it to have a look
+
+cancerdata
+
+rates <- cancerdata$Cases / cancerdata$Population
+summary(rates)
+
+#may make more  sense if expressed as rate per 100000
+rates100000 <- rates*100000
+summary(rates100000)
+
+rates.df <-  data.frame(cancerdata$Demography,rates100000,rates,
+                        cancerdata$Cases,cancerdata$Population)
+names(rates.df) <-  c("Dhb","rate_100000","rate","Cases", "Population")
+rates.df
+
+#What is the overall rate
+rawrate <- sum(cancerdata$Cases) /sum(cancerdata$Population)
+rawrate*100000 #3.634198
+```
+## Model 1: Common underlying rate across all DHBs
+
+Let $Y_{i}$ and $N_{i}$ be the number of  cancer cases  and  population at risk  for the $i^{th}$ DHB. Initially we consider a simple model  that  assumes the underlying rate is the same for  all  DHBS:
+\begin{equation}
+  [Y_{i} |\lambda ]\sim \mathrm{Poisson}(Y_{i} | N_{i}\lambda), \, i=1 \ldots, n (\#eq:model1)
+  \end{equation}
+so, for $i \in 1, \ldots, n,$ $E(Y_{i} |\lambda) = N_{i}\lambda$ and $E(Y_{i}/N_{i} = \lambda).$ That is, $\lambda$ is the expected tongue cancer rate, often referred to as the underlying rate, in contrast to the observable rate $r_{i} = Y_{i}/N_{i}.$ The populations at risk, or ``exposures,'' $\{N_{i}, i \in 1,\ldots,n \}$ are regarded as known constants. It is arguable whether we should make  the conditioning on these values explicit by including them in the model  definition and write
+\begin{equation}
+[Y_{i} |N_{i},\lambda ] \sim \mathrm{Poisson}(N_{i}\lambda), i=1 \ldots, n. \nonumber  
+\end{equation}
+
+To simplify notation a little we will just regard the $N_{i}$ as extra background information we know in advance of observing the cancer  counts and so we won't explicitly  condition on them. 
+
+Model \@ref(eq:model1) assumes the expected rate is the same for  all DHBs. This  means the observable rates $r_{i} = Y_{i} /N_{i}$ vary over DHBs only because of  random  variation and not because of variation in the underlying rates.  The model is a bit simplistic but can be a base to  compare other models  against. Here we are just  using it as a simple example to  explore some aspects of Monte Carlo simulation of posterior distributions.
+
+Let $\mathbf{Y} = (Y_{1}, \ldots, Y_{n}).$ We assume conditional independence of the $Y_{i}$ given $\theta$ so the likelihood is
+$$p(\mathbf{Y} |\lambda) = \prod_{i=1}^{n}\mathrm{Poisson}(Y_{i}|N_{i}\lambda). $$
+The conjugate prior for the rate parameter of a Poisson model is $\mathrm{Gamma}(a,b)$. We set $a = 3/100,000, \, b =1$ and our prior  expectation is therefore $E(\theta) = a/b = 3/100,000$ Thus, our prior guess  at the underlying rate is 3 per 100,000, but the weight we put on that prior  guess is equivalent to the information that would be provided by learning the number of cases for  a DHB with a population of  size 1 (impossible of  course, because the rate for  such a DHB would be 0 or 1, but its a useful  analogy.)
+
+The posterior for $\lambda$ is 
+\begin{align}
+p(\lambda |\mathbf{Y})  & = \frac{\prod_{i=1}^{n}\mathrm{Poisson}(Y_{i}|N_{i}\lambda)
+\mathrm{Gamma}(\lambda|3/100,000,1)}
+{\int \prod_{i=1}^{n}\mathrm{Poisson}(Y_{i}|N_{i}\lambda)\mathrm{Gamma}(\lambda |3/100,000,1) \, \mathrm{d}\lambda} \nonumber \\
+& \propto \left [ \prod_{i=1}^{n} (N_{i}\lambda)^{Y_{i}}\exp(-N_{i}\lambda) \right ] \left[\lambda^{((3/100,000) -1)}\exp(-\lambda) \right] \nonumber \\
+& = \left [\prod_{i=1}^{n}N_{i}^{Y_{i}} \right ] %
+     \left [\prod_{i=1}^{n} \lambda^{Y_{i}} \right ]
+     \left [\exp(\lambda\sum_{i=1}^{n}N_{i}) \right ] %
+      \left[\lambda^{\left ((3/100,000) -1) \right )}\exp(-\lambda) \right] \nonumber \\
+& \propto \lambda^{\left (\sum_{i=1}^{n}Y_{i} +((3/100,000) -1) \right )} \exp -\left(\lambda \left (\sum_{i=1}^{n}{N}_{i} + 1 \right ) \right) \nonumber \\
+& \propto \mathrm{Gamma} \left (\lambda | \left (\sum_{i=1}^{n}Y_{i} +(3/100,000) \right ),({N}_{i} + 1 ) \right )
+\end{align}
+
+Code to  compuet the posterior for the assumed common rate for  all  DHBs is  straightforward.
+
+```{r,echo=TRUE}
+
+
+##Gamma prior 
+a <- 3/100000
+b <- 1      #Like saying prior  evidence is  equivalent  to
+            #one extra tiny DHB of size 1
+
+totcases <- sum( cancerdata$Cases)
+totpop <- sum(cancerdata$Population)
+
+##update to get  parameters of the posterior, using conjugacy
+
+apost <- a + totcases
+bpost <- b + totpop
+
+##Compute posterior  summaries
+postmean <- apost/bpost
+post_median <-  qgamma(0.5,shape=apost,rate = bpost)
+
+postmean * 100000
+post_median * 100000
+
+q025 <- qgamma(0.025,shape=apost,rate=bpost)
+q975 <-  qgamma(0.975,shape=apost,rate=bpost)
+
+exact_quantiles <- 100000*c(q025,post_median,q975)
+exact_quantiles
+
+# Simulation approach - first look at modest size Monte Carlo  sample
+post_lambda100 <- rgamma(n=100,shape=apost,rate=bpost)
+
+##check quantiles 
+post_quantiles100 <- 
+  quantile(post_lambda100,probs=c(0.025,0.5,0.975))
+
+post_quantiles100
+exact_quantiles
+
+#check_mean
+post_mean100 <- mean(post_lambda100)
+100000*post_mean100  #3.662318 
+
+exact_mean <- apost / bpost
+100000*exact_mean   #3.634198 
+
+#check standard deviation
+post_sd100 <-  sd(post_lambda100)
+```
+
+The Monte Carlo  error for the posterior mean is 
+
+```{r,echo=TRUE}
+MCerror <- post_sd100 / sqrt(100)
+MCerror   
+```
+
+which is tiny. It makes more sense when multiplied by 100,000, as per the rates themselves. Recall
+ $$\mathrm{Var}(C\theta) = C^2  \mathrm{Var}(\theta)$$ so
+ $$\mathrm{sd}(C\theta)    = C  \mathrm{sd}(\theta)$$
+
+```{r,echo=TRUE}
+100000 * MCerror #0.02695065, 
+```
+which is still pretty small. The MC mean is about 1 MC standard error  from the exact mean.
+
+Now, see what  happens for  a bigger posterior sample.
+
+```{r,echo=TRUE}
+post_lambda1000 <- rgamma(n=1000,shape=apost,rate=bpost)
+
+post_quantiles1000 <- quantile(post_lambda1000,probs=c(0.025,0.5,0.975))
+##Compare true and simulation results
+
+exact_quantiles
+100000*post_quantiles100
+100000*post_quantiles1000
+
+#tail quantiles looking pretty  good by the time Monte Carlo 
+#simulation size reaches 1000
+
+#MC error for nsim=1000
+
+post_sd1000 <-  100000*sd(post_lambda1000)
+post_sd1000
+
+MC_error1000 <- post_sd1000/sqrt(1000)
+MC_error1000
+
+post_mean1000 <- 100000*mean(post_lambda1000)
+post_mean1000
+100000*exact_mean  
+```
+So the true mean is about on MC standard error from the exact mean.
+The MC error is fairly trivial though and represents
+1/sqrt(1000) = 3.2% of the posterior standard deviation
+
+## Model 2:  DHB specific underlying rates and inference for  functions of these rates
+We now turn our attention to Monte Carlo simulation for more challenging estimands (things to be estimated). We let the underlying rates vary by DHB and address questions such as the rank of each  DHB and the probability that the underlying  rate in each DHB is the largest of all DHBs. In reality, any  such comparisons should take account of other factors that vary by DHB and  affect cancer  rates, such as age structure.  However, to keep the illustration relatively simple we ignore such factors here. Consequently, the comparisons by DHB presented below should not be taken too seriously. Further analysis  would be needed to rigorously compare tongue cancer rates by DHB.
+
+Our model is now 
+\begin{equation}
+[Y_{i} |\lambda_{i}] \sim  \mathrm{Poisson}(N_{i}\lambda_{i}), \, i=1,\ldots, n
+(\#eq:model2)
+\end{equation}
+which differs from \@ref(eq:model1) by allowing each DHB to have its own underlying rate parameter $\lambda_{i}$ in contrast to the common underlying rate assumed in \@ref(eq:model1).  Assuming conditional independence over DHBs and letting $\boldsymbol{\lambda}= (\lambda_{1},\ldots \lambda_{n})^{'} ),$ the likelihood is now
+\begin{equation}
+p(\mathbf{Y} | \boldsymbol{\lambda}) = \prod_{i=1}^{n}\mathrm{Poisson}(Y_{i} | N_{i}\lambda_{i}).
+(\#eq:likel2)
+\end{equation}
+If we assume \emph{a priori} independence,then $p(\boldsymbol{\lambda})=\prod_{i=1}^{n}p(\lambda_{i}).$ We will assume independent Gamma priors for the underlying tongue cancer rates, and, in particular, assume that each DHB parameter has the same $\mathrm{Gamma}((3/100,000),1)$ prior as adopted for the assumed common $\lambda$ in model \@ref(eq:model1). Therefore the prior for the underlying rates is
+\begin{equation}
+p(\boldsymbol{\lambda}) = \prod_{i=1}^{n} \mathrm{Gamma}(\lambda_{i} | (3/100,000),1).
+(\#eq:prior2)
+\end{equation}
+From \@ref(eq:likel2) and \@ref(eq:prior2) the joint posterior for the underlying rate parameters is
+\begin{align}
+p(\boldsymbol{\lambda}| \mathbf{Y}) & = \frac{\prod_{i=1}^{n}\mathrm{Poisson}(Y_{i} | N_{i}\lambda_{i})\prod_{i=1}^{n}\mathrm{Gamma}(\lambda_{i} | (3/100,000),1)}
+{\int \prod_{i=1}^{n}\mathrm{Poisson}(Y_{i} | N_{i}\lambda_{i})\prod_{i=1}^{n}\mathrm{Gamma}(\lambda_{i} | (3/100,000),1) \, \mathrm d \boldsymbol{\lambda}} \nonumber \\
+& \propto \prod_{i=1}^{n} \mathrm{Poisson}(Y_{i} | N_{i}\lambda_{i}) \times \mathrm{Gamma}(\lambda_{i}|(3/100,000),1 ) \nonumber \\
+& \propto \prod_{i=1}^{n} \mathrm{Gamma} \left (\lambda_{i} | (Y_{i}+(3/100,000)),(N_{i}+1) \right) (\#eq:post2)
+\end{align}
+where the last line \@ref(eq:post2) follows fron the conjugacy of the Poisson and Gamma distributions.
+
+So, we can generate the joint posterior distribution for the underlying rates by drawing from independent Gamma distributions.
+As well as summarising the posterior  for the underlying rates for  each DHB, we can compare rates acroos DHBs and compute such this as the posterior ditribuion of each DHBs rank and $\Pr(\lambda_{i} > \lambda_{j}, \forall j \neq i |\mathbf{Y}),$ i.e the posterior probability that the underlying rate for DHB $i$ is greater than the underlying rate for  all other DHBs.
+
+```{r,echo=TRUE}
+fulla_post <-  a + cancerdata$Cases        #vector
+fullb_post <- b +   cancerdata$Population  #vector
+
+fulla_post
+fullb_post
+
+## rgamma is partially vectorised; Easiest to  loop
+## over simulations and on each iteration generate   the vector of lambda
+##lambda values for the 20 DHBs
+## also  need to  work out the maximum and rank for  each  set  of  lambdas
+##generated
+
+M <- 1000 ##number of  draws from  the posterior
+n <- length(rates)  #number of groups - DHBs in this case
+
+##Set-up structures  for  storing output
+
+post_fullambda <- matrix(nrow=M,ncol=n )
+                     
+post_max <- matrix(nrow=M,ncol=n)
+
+post_rank  <- matrix(nrow=M,ncol=n)
+
+for (i in 1:M ) {
+  
+  fullambda <- rgamma(n,shape=fulla_post,rate=fullb_post)
+  
+  ranks <- rank(fullambda)
+  ismax <- (ranks == max(ranks) )
+
+  post_fullambda[i,] <- fullambda
+  post_rank[i,]  <- ranks
+  post_max[i,]  <- ismax
+ 
+  }
+
+##check results
+
+##posterior  quantiles for  each DHB
+
+fullpost_quantiles <-  apply(post_fullambda,MARGIN=2,FUN=quantile,
+                              probs=c(0.025,0.5,0.975))
+
+fullpost_quantiles.df <-  data.frame(rates.df$Dhb,t(100000*fullpost_quantiles))
+
+
+fullpost_quantiles.df <- 
+cbind(fullpost_quantiles.df,rates.df$Cases)
+
+names(fullpost_quantiles.df) <- c("DHB","q025","q50","q975","cases")
+fullpost_quantiles.df
+
+##posterior quantiles for  each DHB's rank
+fullpost_ranks_quantiles.df <-  
+  apply(post_rank,MARGIN=2,FUN=quantile,
+                                    probs=c(0.025,0.5,0.975))
+
+fullpost_ranks_quantiles.df <-  
+ data.frame( t(apply(post_rank,MARGIN=2,FUN=quantile,
+        probs=c(0.025,0.5,0.975)) ) )
+
+fullpost_ranks_quantiles.df$Dhb <- rates.df$Dhb
+fullpost_ranks_quantiles.df
+names(fullpost_ranks_quantiles.df)[1:3] <- c("q025","q50","q975")
+
+fullpost_ranks_quantiles.df
+##posterior probability that rate in each DHB is the maximum
+
+fullpost_max <- colMeans(post_max)
+fullpost_max.df <- data.frame(rates.df$Dhb,fullpost_max)
+names(fullpost_max.df) <- c("Dhb","prob")
+fullpost_max.df
+##What about probability in the top 5
+
+intop5 <- (post_rank >= 16)
+
+Prtop5 <- colMeans((intop5) )
+
+Prtop5.df <- data.frame(rates.df$Dhb,Prtop5)
+Prtop5.df
+```
+We can see that very  few of the DHBS are definitively in the top 5. We would be most confident about Mid-central, West Coast and Taranaki ranking in the top 5.
+
+The fact that we could only confidently assert that three of the 20 DHBS are in the top 5 of all DHBs, illustrates the uncertainty in the estimation and the difficulties that would be faced if some treatment or screening programme was to be targeted at the DHBs with the highest rates. However, the data analysed here pertain to  a single year, 2018. Analysing more years of data would give  more stable picture of variation by DHB in tongue cancer rates, though adjustment for differences in population structure between DHBs  would be necessary before any firm conclusions could be drawn from an analysis of this sort.
+
+Later in the course we will consider models that are a compromise between model \@ref(eq:model1) and \@ref(eq:model2).

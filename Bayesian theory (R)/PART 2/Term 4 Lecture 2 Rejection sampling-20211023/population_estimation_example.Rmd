@@ -1,0 +1,146 @@
+---
+title: "Population estimation example"
+author: "Patrick Graham"
+date: "31 August 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+We will illustrate rejection sampling using the problem of estimating the number of trials in Binomial experiment with known success probability. 
+This is the opposite problem to that usually encountered in Binomial experiments where the number of trials is known but the success probability is not.  It is a simplified version of  a problem arising in population estimation.   The simplification is that usually the success probability needs to be estimated as well as the population size. Capture-recapture studies (known as dual-system estimation in  official statistics) allow both the number of trials and the success probability ("capture probability"in this context) to be estimated. We assume the the capture probability is known. We let $X$ denote the observed count, $N$ the population size to be captured, and $\theta$  the known capture probability. Our model of the observed count is
+$$X \sim \mathrm{Binomial}(N,\theta) $$
+The likelihood for $N$ is 
+$$
+\begin{aligned}
+p(X|N,\theta) & =\binom{N}{X}\theta^{X}(1-\theta)^{(N-X)} \\
+             & \propto \binom{N}{X}(1-\theta)^{(N-X)}
+\end{aligned}
+$$
+Consequently the log-likelihood is
+$$l(X|N,\theta) = \log(\binom{N}{X}) (N-X) \log(1-\theta) $$
+The prior for $N$ is a discrete uniform on the interval $(4000,6000).$  The observed data is X=4350.
+
+```{r popest, echo=TRUE}
+library(MASS)          
+library(MCMCpack)
+#wd <- "C:/Users/Patrick/Documents/Patrick"   #change to your folder or hash out this and the following line
+                                         #if you want to default to your own folder
+#setwd(wd)
+#set-up functions that are needed
+
+##log pmf for N assuming a uniform prior - log-likelihood
+logpN <- function(N,X,theta) {
+  
+  #logdens <- lfactorial(N) - (lfactorial(N-n) + lfactorial(n)) + 
+  # (N-n)*log(p0)
+  logdens <- lchoose(N,X) +  (N-X)*log(1-theta)
+  return(logdens)
+}
+```
+check what happens for values of N < observed
+```{r, echo=TRUE}
+logpN(N=4000,X=4350,theta=0.87)
+##so likelihood is 
+exp(logpN(N=4000,X=4350,theta=0.87))
+```
+No support for population values less than the observed count - make sense.
+```{r, echo=FALSE}
+N  <- seq(from=4350,to=6000,by=1)
+
+logL <- logpN(N=N,X=4350,theta=0.87)
+
+plot(N,logL)
+```
+
+
+Now we set-up the rejection sampler based on uniform prior
+Define a function to generate a single draw from the posterior
+```{r, echo=TRUE}
+acceptN <- function(X,theta,ntry,low=1,high=10000000) {
+  
+  # X is the observed count
+  # theta - probability of capture
+    #ntry is the maximum number of attempts at generating N
+  ##lower bound of prior
+  ##upper bound of prior
+ 
+  ##calls the function logpN
+  
+    guess <- X/theta #MLE
+  lower <- max((X+1),low)
+    upper <- high
+   max_logdens <- logpN(N=guess,X=X,theta=theta)
+  
+  accept <- 0
+  attempt <- 1
+  
+  ##Define a vector of points on which the prior is defined
+  testseq <- seq(from=lower,to=upper,by=1)
+  
+  while((accept < 1) & (attempt < (ntry + 1))) {
+    Ntest <- sample(testseq,size=1)
+    logpNtest <- logpN(N=Ntest,X=X,theta=theta)
+    check <- logpNtest - max_logdens
+    u <- runif(1,0,1)
+    if (u <= exp(check)) 
+    {accept <- 1}
+    attempt <- attempt + 1
+  }   #end while loop
+  return(c(Ntest,attempt))
+}  #End function
+```
+Now all we need to do is set the desired posterior sample size  and run acceptN() in a loop to get the required number of values of $N$.
+
+```{r, echo=TRUE}
+npos <- 2000
+possamp <- vector(mode="numeric",length=npos)
+nattempts <- vector(mode="numeric",length=npos)
+theta = 0.87
+X  = 4350   ##observed sample size
+
+for (i in 1:npos) {
+  newN <- acceptN(X=4350,theta=0.87,ntry=5000,low=4000,high=6000)
+ possamp[i] <- newN[1]
+ nattempts[i] <- newN[2]
+ }
+summary(possamp)
+summary(nattempts)
+```
+plot posterior histogram
+```{r, echo=TRUE}
+hist(possamp,main=expression(paste("posterior histogram for N given: X=4350,",theta,"=0.87")))
+```
+
+Compare with true posterior percentiles
+
+```{r, echo=TRUE}
+##Define a vector of points on which the prior is defined
+  testseq <- seq(from=4350,to=6000,by=1)
+##evaluate the log-posterior at each point
+logpost <- logpN(N=testseq,X=4350,theta=0.87)
+head(logpost)
+str(logpost)
+
+```
+Get the cumulative distribution
+```{r,echo=TRUE}
+postdist <- exp(logpost)/(sum(exp(logpost)))
+head(postdist)
+sum(postdist)
+cumdist <- cumsum(postdist)
+##set up indicators for the quantiles
+q025 <- sum((cumdist <= 0.025))  ## number of points until 2.5 percentile             
+q50 <- sum((cumdist <= 0.5) )
+q975 <- sum((cumdist <= 0.975) )
+##can near get quantiles by locating these points on the list of possible of points -- this is like inverting the cumulative distribution function
+Nlow <- testseq[q025]
+Nmedian <- testseq[q50]
+Nhigh <- testseq[q975]
+true_quant <- c(Nlow,Nmedian,Nhigh)
+reject_quant <- quantile(possamp,probs=c(0.025,0.5,0.975))
+cat("true-quantiles",true_quant, "\n",sep=" ")
+cat("quantiles estimated from rejection sampling,", reject_quant, "\n",sep=" ")
+```
+The approached to computing the "true" quantiles could be refined further to account of the discrete-ness.
