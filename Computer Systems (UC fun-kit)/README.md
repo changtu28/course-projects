@@ -4,14 +4,6 @@
  *
 
 Welcome to the ROCK PAPER SCISSORS README.
-This README will help you run ROCK PAPER SCISSORS and teach you how to play. 
-
-
-## Objective
-
-ROCK PAPER SCISSORS is a guessing game for two players. Each player has two ships which are placed and marked on the LED screen. 
-The locations of their ships are concealed from their opponent (Custom screen divider). Players alternate turns calling "shots" 
-at the other player's ships, and the objective of the game is to destroy the opposing player's fleet. 
 
 ## Prerequisites
 
