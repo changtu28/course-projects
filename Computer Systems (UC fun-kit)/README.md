@@ -1,6 +1,5 @@
 # ROCK PAPER SCISSORS    
- * @author  Caleb Wenborn (cwe55)  
- *          Chang Tu (ctu28)  
+ * @author  Caleb Wenborn (cwe55)  Chang Tu (ctu28)  
  * Team number : 422
  *
 
