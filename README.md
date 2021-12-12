@@ -1,8 +1,5 @@
 
 <h1 align="center">Hi 👋, I'm Chang Tu</h1>
-<h3 align="center"> University of Canterbury | Christchurch</h3>
-
-- 📫 How to reach me **ctu28@uclive.ac.nz**
 
 <h3 align="left">Connect with me:</h3>
 <p align="left">
